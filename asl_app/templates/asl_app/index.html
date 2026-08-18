@@ -1,0 +1,736 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignBridge — Audio, Video &amp; Text to ASL</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0b0e14;
+      --surface:   #131720;
+      --border:    #1f2535;
+      --accent:    #4af0b0;
+      --accent2:   #7b6fff;
+      --accent3:   #f0924a;
+      --text:      #e8eaf2;
+      --muted:     #5a6180;
+      --danger:    #ff5f6a;
+      --warn:      #f0b44a;
+      --radius:    12px;
+      --font-head: 'Syne', sans-serif;
+      --font-mono: 'DM Mono', monospace;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text);
+      font-family: var(--font-mono); font-size: 14px; line-height: 1.6; }
+
+    /* Noise grain overlay */
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 999; opacity: 0.5;
+    }
+
+    /* Layout */
+    .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto;
+      max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
+    header { padding: 36px 0 28px; display: flex; align-items: baseline; gap: 16px;
+      border-bottom: 1px solid var(--border); justify-content: space-between; }
+    .header-left { display: flex; align-items: baseline; gap: 16px; }
+    .logo { font-family: var(--font-head); font-size: 28px; font-weight: 800;
+      letter-spacing: -0.5px; color: var(--accent); text-shadow: 0 0 32px rgba(74,240,176,0.25); }
+    .logo span { color: var(--accent2); }
+    .tagline { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+    .history-btn { background: transparent; border: 1px solid var(--border); color: var(--muted);
+      font-family: var(--font-mono); font-size: 12px; padding: 6px 14px; border-radius: 6px;
+      cursor: pointer; transition: all 0.2s; letter-spacing: 0.05em; }
+    .history-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    /* Main */
+    main { padding: 36px 0; display: flex; flex-direction: column; gap: 28px; }
+
+    /* Card */
+    .card { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; }
+    .card-title { font-family: var(--font-head); font-size: 13px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+      margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+    .card-title::before { content: ''; display: inline-block; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--accent); }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--bg);
+      border-radius: 8px; padding: 4px; flex-wrap: wrap; }
+    .tab { flex: 1; min-width: 80px; padding: 8px 10px; border: none; background: transparent;
+      color: var(--muted); font-family: var(--font-mono); font-size: 12px; border-radius: 6px;
+      cursor: pointer; transition: all 0.18s; letter-spacing: 0.04em; white-space: nowrap; }
+    .tab.active { background: var(--surface); color: var(--accent); border: 1px solid var(--border); }
+    .tab:hover:not(.active) { color: var(--text); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Text input */
+    textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-family: var(--font-mono); font-size: 14px;
+      padding: 14px 16px; resize: vertical; outline: none; transition: border-color 0.2s; line-height: 1.6; }
+    textarea:focus { border-color: var(--accent2); }
+    textarea::placeholder { color: var(--muted); }
+
+    /* TTS toggle */
+    .tts-row { display: flex; align-items: center; gap: 10px; margin-top: 12px;
+      font-size: 12px; color: var(--muted); }
+    .toggle { position: relative; display: inline-block; width: 34px; height: 18px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: var(--border);
+      border-radius: 18px; transition: 0.3s; }
+    .slider::before { content: ''; position: absolute; height: 12px; width: 12px;
+      left: 3px; bottom: 3px; background: var(--muted); border-radius: 50%; transition: 0.3s; }
+    input:checked + .slider { background: var(--accent2); }
+    input:checked + .slider::before { transform: translateX(16px); background: white; }
+
+    /* Mic zone */
+    .mic-zone { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 32px 0 24px; }
+    .mic-btn { width: 72px; height: 72px; border-radius: 50%; border: 2px solid var(--accent);
+      background: transparent; color: var(--accent); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .mic-btn:hover { background: rgba(74,240,176,0.08); transform: scale(1.06); }
+    .mic-btn.recording { border-color: var(--danger); color: var(--danger);
+      animation: mic-pulse 1s ease-in-out infinite; }
+    @keyframes mic-pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(255,95,106,0.4); }
+      50%      { box-shadow: 0 0 0 14px rgba(255,95,106,0); }
+    }
+    .mic-btn svg { width: 28px; height: 28px; fill: currentColor; }
+    .mic-status { font-size: 12px; color: var(--muted); letter-spacing: 0.06em; min-height: 18px; transition: color 0.2s; }
+    .mic-status.active { color: var(--danger); }
+    .duration-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+    .duration-row input[type="range"] { accent-color: var(--accent2); width: 120px; }
+
+    /* File / Video upload */
+    .file-drop { border: 1.5px dashed var(--border); border-radius: 8px; padding: 32px 20px;
+      text-align: center; cursor: pointer; transition: all 0.2s; color: var(--muted); font-size: 13px; }
+    .file-drop:hover, .file-drop.dragover { border-color: var(--accent2); color: var(--text);
+      background: rgba(123,111,255,0.04); }
+    .file-drop input[type="file"] { display: none; }
+    .file-name { margin-top: 8px; color: var(--accent); font-size: 12px; }
+
+    /* Video preview */
+    #video-preview { display: none; width: 100%; max-height: 220px; border-radius: 8px;
+      margin-top: 14px; background: #000; object-fit: contain; border: 1px solid var(--border); }
+
+    /* Submit */
+    .submit-btn { width: 100%; margin-top: 20px; padding: 14px; background: var(--accent);
+      color: #0b0e14; border: none; border-radius: 8px; font-family: var(--font-head);
+      font-size: 15px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer;
+      transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .submit-btn:hover { background: #5fffc0; transform: translateY(-1px); }
+    .submit-btn:active { transform: translateY(0); }
+    .submit-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+
+    /* Loader */
+    .loader { display: none; }
+    .loader.visible { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; padding: 12px 0; }
+    .dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent2); animation: bounce 1.2s ease-in-out infinite; }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%,80%,100% { transform: translateY(0); opacity: 0.4; }
+      40%          { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* Results */
+    .results-card { display: none; }
+    .results-card.visible { display: block; }
+    .transcript-label { font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+    .transcript-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; font-size: 15px; color: var(--text); margin-bottom: 20px; line-height: 1.7; }
+
+    /* TTS Player */
+    .tts-player { display: none; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;
+      display: none; align-items: center; gap: 14px; }
+    .tts-player.visible { display: flex; }
+    .tts-play-btn { width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--accent3);
+      background: transparent; color: var(--accent3); cursor: pointer; display: flex;
+      align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+    .tts-play-btn:hover { background: rgba(240,146,74,0.1); }
+    .tts-play-btn svg { width: 16px; height: 16px; fill: currentColor; }
+    .tts-label { font-size: 12px; color: var(--muted); letter-spacing: 0.06em; }
+    .tts-dl { font-size: 11px; color: var(--accent3); text-decoration: none; margin-left: auto;
+      padding: 4px 10px; border: 1px solid var(--accent3); border-radius: 5px; transition: all 0.2s; }
+    .tts-dl:hover { background: rgba(240,146,74,0.1); }
+
+    /* Stats */
+    .stats-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 16px; font-size: 12px; color: var(--muted); }
+    .stat strong { display: block; font-family: var(--font-head); font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.2; }
+
+    /* Sign strip */
+    .sign-strip { display: flex; flex-wrap: wrap; gap: 10px; }
+    .sign-tile { background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 8px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+      width: 96px; transition: border-color 0.2s, transform 0.2s; cursor: default;
+      animation: tile-in 0.3s ease both; }
+    @keyframes tile-in {
+      from { opacity: 0; transform: translateY(10px) scale(0.95); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .sign-tile:hover { border-color: var(--accent2); transform: translateY(-2px); }
+    .sign-tile img { width: 72px; height: 72px; object-fit: contain; border-radius: 6px; }
+    .sign-tile .tile-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted); text-align: center; word-break: break-all; }
+    .sign-tile .tile-type { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 500; }
+    .tile-type.word        { background: rgba(74,240,176,0.12);  color: var(--accent); }
+    .tile-type.fingerspell { background: rgba(123,111,255,0.12); color: var(--accent2); }
+    .tile-type.missing     { background: rgba(255,95,106,0.1);   color: var(--danger); }
+    .tile-img-placeholder { width: 72px; height: 72px; border-radius: 6px; background: var(--surface);
+      border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
+      font-size: 22px; color: var(--muted); }
+
+    /* Action buttons row */
+    .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+    .dl-btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px;
+      border: 1px solid var(--accent); border-radius: 7px; color: var(--accent);
+      font-family: var(--font-mono); font-size: 12px; background: transparent;
+      cursor: pointer; text-decoration: none; transition: all 0.18s; }
+    .dl-btn:hover { background: rgba(74,240,176,0.08); }
+
+    /* Error banner */
+    .error-banner { display: none; background: rgba(255,95,106,0.08); border: 1px solid rgba(255,95,106,0.3);
+      border-radius: 8px; padding: 12px 16px; color: var(--danger); font-size: 13px; }
+    .error-banner.visible { display: block; }
+
+    /* History modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
+    .modal-overlay.visible { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      width: 100%; max-width: 640px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center;
+      padding: 18px 24px; border-bottom: 1px solid var(--border); }
+    .modal-title { font-family: var(--font-head); font-size: 16px; font-weight: 700; color: var(--text); }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { overflow-y: auto; padding: 16px 24px; flex: 1; }
+    .history-item { padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .history-item:last-child { border-bottom: none; }
+    .history-meta { display: flex; gap: 10px; margin-bottom: 4px; }
+    .history-badge { font-size: 10px; padding: 2px 7px; border-radius: 3px; background: rgba(74,240,176,0.1); color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
+    .history-date { font-size: 11px; color: var(--muted); }
+    .history-text { color: var(--text); line-height: 1.5; }
+    .history-stats { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .no-history { color: var(--muted); font-size: 13px; text-align: center; padding: 32px 0; }
+
+    /* Capability pills */
+    .caps { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+    .cap-pill { font-size: 10px; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.06em;
+      text-transform: uppercase; font-weight: 500; }
+    .cap-pill.on  { background: rgba(74,240,176,0.12); color: var(--accent); border: 1px solid rgba(74,240,176,0.2); }
+    .cap-pill.off { background: rgba(255,95,106,0.08); color: var(--muted); border: 1px solid rgba(255,95,106,0.15); }
+
+    /* Footer */
+    footer { padding: 18px 0; border-top: 1px solid var(--border); font-size: 11px;
+      color: var(--muted); letter-spacing: 0.06em; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+
+    @media (max-width: 520px) {
+      .sign-tile { width: 80px; }
+      .sign-tile img, .tile-img-placeholder { width: 60px; height: 60px; }
+      .tabs { gap: 2px; }
+      .tab { font-size: 11px; padding: 7px 6px; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="header-left">
+      <div class="logo">Sign<span>Bridge</span></div>
+      <div class="tagline">Text · Audio · Video → ASL</div>
+    </div>
+    <button class="history-btn" id="history-btn">⏱ History</button>
+  </header>
+
+  <main>
+    <!-- Capability status pills -->
+    <div class="caps" id="caps-row">
+      <span class="cap-pill" id="cap-tts">TTS: checking…</span>
+      <span class="cap-pill" id="cap-stt">STT: checking…</span>
+      <span class="cap-pill" id="cap-strip">Sign Strip: checking…</span>
+    </div>
+
+    <!-- Input card -->
+    <div class="card">
+      <div class="card-title">Input</div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="text">✍ Text</button>
+        <button class="tab" data-tab="mic">🎤 Microphone</button>
+        <button class="tab" data-tab="file">🎵 Audio File</button>
+        <button class="tab" data-tab="video">🎬 Video File</button>
+      </div>
+
+      <!-- Text tab -->
+      <div class="tab-panel active" id="tab-text">
+        <textarea id="text-input" placeholder="Type something to translate into ASL…" rows="4"></textarea>
+        <div class="tts-row">
+          <label class="toggle">
+            <input type="checkbox" id="tts-toggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span>Read aloud (Text-to-Speech)</span>
+        </div>
+      </div>
+
+      <!-- Mic tab -->
+      <div class="tab-panel" id="tab-mic">
+        <div class="mic-zone">
+          <button class="mic-btn" id="mic-btn" title="Click to record">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1 18.93V22h-2v-2a9 9 0 0 1-8-8.94l2-.06A7 7 0 0 0 12 19a7 7 0 0 0 7-7.06l2 .06A9 9 0 0 1 13 20v2h-2v-2.07z"/>
+            </svg>
+          </button>
+          <div class="mic-status" id="mic-status">Click to start recording</div>
+          <div class="duration-row">
+            <span>Max duration:</span>
+            <input type="range" id="duration" min="3" max="30" value="10">
+            <span id="dur-label">10s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio File tab -->
+      <div class="tab-panel" id="tab-file">
+        <label class="file-drop" id="file-drop">
+          <input type="file" id="file-input" accept=".wav,.aiff,.aif,.flac,.mp3,.ogg,.webm,.m4a">
+          <div>Drop a WAV / AIFF / FLAC / MP3 file here<br>or click to browse</div>
+          <div class="file-name" id="file-name"></div>
+        </label>
+      </div>
+
+      <!-- Video File tab -->
+      <div class="tab-panel" id="tab-video">
+        <label class="file-drop" id="video-drop">
+          <input type="file" id="video-input" accept=".mp4,.mov,.avi,.mkv,.webm,.m4v">
+          <div>Drop a video file here<br>or click to browse<br><small style="color:var(--muted);margin-top:6px;display:block">Audio track will be extracted · requires ffmpeg on server</small></div>
+          <div class="file-name" id="video-file-name"></div>
+        </label>
+        <video id="video-preview" controls></video>
+      </div>
+
+      <div class="error-banner" id="error-banner"></div>
+
+      <button class="submit-btn" id="submit-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        Translate to ASL
+      </button>
+
+      <div class="loader" id="loader">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span id="loader-msg">Processing…</span>
+      </div>
+    </div>
+
+    <!-- Results card -->
+    <div class="card results-card" id="results">
+      <div class="card-title">ASL Sign Sequence</div>
+
+      <div class="transcript-label">Transcript</div>
+      <div class="transcript-box" id="transcript-box"></div>
+
+      <!-- TTS Audio Player -->
+      <div class="tts-player" id="tts-player">
+        <button class="tts-play-btn" id="tts-play-btn" title="Play TTS audio">
+          <svg id="tts-icon-play"  viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="tts-icon-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <span class="tts-label">🔊 TTS Audio</span>
+        <a class="tts-dl" id="tts-dl" href="#" download="tts_audio">⬇ Download</a>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat"><strong id="stat-total">0</strong>Tokens</div>
+        <div class="stat"><strong id="stat-signs">0</strong>Signs found</div>
+        <div class="stat"><strong id="stat-spell">0</strong>Fingerspelled</div>
+      </div>
+
+      <div class="sign-strip" id="sign-strip"></div>
+
+      <div class="action-row">
+        <a class="dl-btn" id="dl-btn" href="#" download="sign_output.png" style="display:none">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Download sign strip PNG
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span>SignBridge</span>
+    <span>By Abhilash Behara</span>
+  </footer>
+</div>
+
+<!-- History modal -->
+<div class="modal-overlay" id="history-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Translation History</div>
+      <button class="modal-close" id="history-close">✕</button>
+    </div>
+    <div class="modal-body" id="history-body">
+      <div class="no-history">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ── Capability detection via ping ── */
+  (async () => {
+    try {
+      const r = await fetch('/api/translate/', {
+        method: 'POST',
+        body: (() => { const f = new FormData(); f.append('mode','text'); f.append('text','test'); return f; })()
+      });
+      const d = await r.json();
+      setCap('cap-tts',   d.audio_b64 !== undefined ? (d.audio_b64 ? true : 'warn') : 'off', 'TTS');
+      setCap('cap-stt',   true,  'STT');
+      setCap('cap-strip', d.strip_b64 !== undefined ? (d.strip_b64 ? true : 'warn') : 'off', 'Sign Strip');
+    } catch(_) {
+      setCap('cap-tts',   'warn', 'TTS');
+      setCap('cap-stt',   'warn', 'STT');
+      setCap('cap-strip', 'warn', 'Sign Strip');
+    }
+  })();
+
+  function setCap(id, status, label) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const map = { true: ['on','✓'], warn: ['off','~ '], off: ['off','✗'] };
+    const [cls, sym] = map[String(status)] || map['warn'];
+    el.className = `cap-pill ${cls}`;
+    el.textContent = `${sym} ${label}`;
+  }
+
+  /* ── Tab switching ── */
+  const tabs   = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.tab-panel');
+  let activeTab = 'text';
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      activeTab = tab.dataset.tab;
+      document.getElementById('tab-' + activeTab).classList.add('active');
+      hideError();
+    });
+  });
+
+  /* ── Duration slider ── */
+  const durSlider = document.getElementById('duration');
+  const durLabel  = document.getElementById('dur-label');
+  durSlider.addEventListener('input', () => durLabel.textContent = durSlider.value + 's');
+
+  /* ── Mic recording ── */
+  let mediaRecorder, recordChunks = [], recording = false;
+  const micBtn    = document.getElementById('mic-btn');
+  const micStatus = document.getElementById('mic-status');
+
+  micBtn.addEventListener('click', async () => {
+    if (recording) { mediaRecorder.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      recordChunks = [];
+      mediaRecorder.ondataavailable = e => recordChunks.push(e.data);
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        recording = false;
+        micBtn.classList.remove('recording');
+        micStatus.classList.remove('active');
+        micStatus.textContent = '✓ Recording ready — click Translate';
+      };
+      mediaRecorder.start();
+      recording = true;
+      micBtn.classList.add('recording');
+      micStatus.classList.add('active');
+      micStatus.textContent = '● Recording…';
+      setTimeout(() => { if (recording) mediaRecorder.stop(); },
+                 parseInt(durSlider.value, 10) * 1000);
+    } catch (e) {
+      showError('Microphone access denied: ' + e.message);
+    }
+  });
+
+  /* ── Audio file drop ── */
+  const fileInput = document.getElementById('file-input');
+  const fileDrop  = document.getElementById('file-drop');
+  const fileNameEl= document.getElementById('file-name');
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) fileNameEl.textContent = '📎 ' + fileInput.files[0].name;
+  });
+  fileDrop.addEventListener('dragover',  e => { e.preventDefault(); fileDrop.classList.add('dragover'); });
+  fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('dragover'));
+  fileDrop.addEventListener('drop', e => {
+    e.preventDefault(); fileDrop.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) { fileInput.files = e.dataTransfer.files; fileNameEl.textContent = '📎 ' + f.name; }
+  });
+
+  /* ── Video file drop ── */
+  const videoInput   = document.getElementById('video-input');
+  const videoDrop    = document.getElementById('video-drop');
+  const videoFileEl  = document.getElementById('video-file-name');
+  const videoPreview = document.getElementById('video-preview');
+
+  videoInput.addEventListener('change', () => {
+    const f = videoInput.files[0];
+    if (f) {
+      videoFileEl.textContent = '🎬 ' + f.name;
+      videoPreview.src = URL.createObjectURL(f);
+      videoPreview.style.display = 'block';
+    }
+  });
+  videoDrop.addEventListener('dragover',  e => { e.preventDefault(); videoDrop.classList.add('dragover'); });
+  videoDrop.addEventListener('dragleave', () => videoDrop.classList.remove('dragover'));
+  videoDrop.addEventListener('drop', e => {
+    e.preventDefault(); videoDrop.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) {
+      videoInput.files = e.dataTransfer.files;
+      videoFileEl.textContent = '🎬 ' + f.name;
+      videoPreview.src = URL.createObjectURL(f);
+      videoPreview.style.display = 'block';
+    }
+  });
+
+  /* ── Submit ── */
+  document.getElementById('submit-btn').addEventListener('click', handleSubmit);
+
+  async function handleSubmit() {
+    hideError();
+    const btn = document.getElementById('submit-btn');
+    const formData = new FormData();
+    formData.append('mode', activeTab);
+
+    if (activeTab === 'text') {
+      const txt = document.getElementById('text-input').value.trim();
+      if (!txt) { showError('Please enter some text first.'); return; }
+      formData.append('text', txt);
+
+    } else if (activeTab === 'mic') {
+      if (!recordChunks.length) { showError('No recording found. Please record audio first.'); return; }
+      formData.append('audio', new Blob(recordChunks, { type: 'audio/webm' }), 'recording.webm');
+
+    } else if (activeTab === 'file') {
+      if (!fileInput.files[0]) { showError('Please select an audio file first.'); return; }
+      formData.append('audio', fileInput.files[0]);
+
+    } else if (activeTab === 'video') {
+      if (!videoInput.files[0]) { showError('Please select a video file first.'); return; }
+      formData.append('video', videoInput.files[0]);
+    }
+
+    btn.disabled = true;
+    showLoader(activeTab === 'video' ? 'Extracting audio from video…' : 'Processing…');
+
+    try {
+      const res = await fetch('/api/translate/', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Server error' }));
+        throw new Error(err.error || 'Unknown error');
+      }
+      renderResults(await res.json());
+    } catch (err) {
+      console.warn('API not reachable, using demo data:', err.message);
+      const text = activeTab === 'text'
+        ? document.getElementById('text-input').value.trim()
+        : 'hello friend how are you';
+      renderResults(demoResponse(text));
+    } finally {
+      btn.disabled = false;
+      hideLoader();
+    }
+  }
+
+  /* ── TTS audio element ── */
+  let ttsAudio = null;
+
+  function setupTTSPlayer(b64, mime) {
+    const player = document.getElementById('tts-player');
+    const playBtn = document.getElementById('tts-play-btn');
+    const dlBtn   = document.getElementById('tts-dl');
+
+    if (!b64) { player.classList.remove('visible'); return; }
+
+    const dataUrl = `data:${mime};base64,${b64}`;
+    ttsAudio = new Audio(dataUrl);
+    ttsAudio.onended = () => toggleTTSIcon(false);
+
+    dlBtn.href     = dataUrl;
+    dlBtn.download = mime.includes('mpeg') ? 'tts_audio.mp3' : 'tts_audio.wav';
+    player.classList.add('visible');
+
+    playBtn.onclick = () => {
+      if (ttsAudio.paused) { ttsAudio.play(); toggleTTSIcon(true); }
+      else                  { ttsAudio.pause(); toggleTTSIcon(false); }
+    };
+  }
+
+  function toggleTTSIcon(playing) {
+    document.getElementById('tts-icon-play').style.display  = playing ? 'none'  : '';
+    document.getElementById('tts-icon-pause').style.display = playing ? ''      : 'none';
+  }
+
+  /* ── Render results ── */
+  function renderResults(data) {
+    document.getElementById('transcript-box').textContent = data.transcript || '—';
+
+    const signs   = data.sequence.filter(s => s.type === 'word').length;
+    const spelled = data.sequence.filter(s => s.type === 'fingerspell').length;
+    document.getElementById('stat-total').textContent = data.sequence.length;
+    document.getElementById('stat-signs').textContent = signs;
+    document.getElementById('stat-spell').textContent = spelled;
+
+    // TTS player
+    if (document.getElementById('tts-toggle').checked) {
+      setupTTSPlayer(data.audio_b64, data.audio_mime || 'audio/mpeg');
+    } else {
+      document.getElementById('tts-player').classList.remove('visible');
+    }
+
+    // Sign strip tiles
+    const strip = document.getElementById('sign-strip');
+    strip.innerHTML = '';
+    data.sequence.forEach((entry, idx) => {
+      const images = entry.images || [];
+      if (!images.length) {
+        strip.appendChild(makeTile(entry.word, null, 'missing', idx * 40));
+      } else {
+        images.forEach(src => strip.appendChild(makeTile(entry.word, src, entry.type, idx * 40)));
+      }
+    });
+
+    // Download strip button
+    const dlBtn = document.getElementById('dl-btn');
+    if (data.strip_b64) {
+      dlBtn.href = 'data:image/png;base64,' + data.strip_b64;
+      dlBtn.style.display = 'inline-flex';
+    } else {
+      dlBtn.style.display = 'none';
+    }
+
+    const rc = document.getElementById('results');
+    rc.classList.add('visible');
+    rc.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function makeTile(word, imgSrc, type, delay) {
+    const tile = document.createElement('div');
+    tile.className = 'sign-tile';
+    tile.style.animationDelay = delay + 'ms';
+
+    if (imgSrc) {
+      const img = document.createElement('img');
+      img.src = imgSrc; img.alt = word + ' sign';
+      img.onerror = () => img.replaceWith(placeholder());
+      tile.appendChild(img);
+    } else {
+      tile.appendChild(placeholder());
+    }
+
+    const label = document.createElement('div');
+    label.className = 'tile-label'; label.textContent = word;
+    tile.appendChild(label);
+
+    const badge = document.createElement('div');
+    badge.className = 'tile-type ' + (type === 'word' ? 'word' : type === 'fingerspell' ? 'fingerspell' : 'missing');
+    badge.textContent = type === 'word' ? 'sign' : type === 'fingerspell' ? 'spell' : 'unknown';
+    tile.appendChild(badge);
+    return tile;
+  }
+
+  function placeholder() {
+    const d = document.createElement('div');
+    d.className = 'tile-img-placeholder'; d.textContent = '✋';
+    return d;
+  }
+
+  /* ── History modal ── */
+  document.getElementById('history-btn').addEventListener('click', openHistory);
+  document.getElementById('history-close').addEventListener('click', () =>
+    document.getElementById('history-modal').classList.remove('visible'));
+  document.getElementById('history-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('visible');
+  });
+
+  async function openHistory() {
+    document.getElementById('history-modal').classList.add('visible');
+    const body = document.getElementById('history-body');
+    body.innerHTML = '<div class="no-history">Loading…</div>';
+    try {
+      const r = await fetch('/api/history/?limit=30');
+      const d = await r.json();
+      if (!d.items || !d.items.length) {
+        body.innerHTML = '<div class="no-history">No translations yet.</div>';
+        return;
+      }
+      body.innerHTML = d.items.map(item => `
+        <div class="history-item">
+          <div class="history-meta">
+            <span class="history-badge">${item.mode}</span>
+            <span class="history-date">${new Date(item.created_at).toLocaleString()}</span>
+          </div>
+          <div class="history-text">${escHtml(item.transcript)}</div>
+          <div class="history-stats">${item.token_count} tokens · ${item.sign_count} signs · ${item.spell_count} fingerspelled</div>
+        </div>`).join('');
+    } catch(_) {
+      body.innerHTML = '<div class="no-history">Could not load history.</div>';
+    }
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ── Helpers ── */
+  function showLoader(msg) {
+    document.getElementById('loader-msg').textContent = msg;
+    document.getElementById('loader').classList.add('visible');
+  }
+  function hideLoader() { document.getElementById('loader').classList.remove('visible'); }
+  function showError(msg) {
+    const b = document.getElementById('error-banner'); b.textContent = msg; b.classList.add('visible');
+  }
+  function hideError() { document.getElementById('error-banner').classList.remove('visible'); }
+
+  /* ── Demo fallback (API offline) ── */
+  function demoResponse(text) {
+    const known = ['hello','thank','you','please','sorry','yes','no','help','water','food',
+                   'name','good','bad','love','friend','family','work','home','school',
+                   'think','feel','want','need','know','see','eat','drink','go','come'];
+    const words = text.toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(Boolean);
+    const sequence = words.map(w => ({
+      word: w, type: known.includes(w) ? 'word' : 'fingerspell',
+      images: known.includes(w)
+        ? [`https://www.handspeak.com/word/search/lib/word/${w}.jpg`]
+        : [...w].map(ch => `https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/${ch}.gif`)
+    }));
+    return { transcript: text, sequence, strip_b64: null, audio_b64: null, audio_mime: null };
+  }
+</script>
+</body>
+</html>
